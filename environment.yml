@@ -1,0 +1,20 @@
+name: french-solitaire
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - numpy
+  - pip
+  - pip:
+    - gymnasium
+    - mlflow
+    - matplotlib
+    - tensorboard
+    - pytest
