@@ -60,6 +60,24 @@ conda activate french-solitaire
 mlflow ui --backend-store-uri file:./mlruns
 ```
 
+## Notebook Marimo (tutorial interactivo)
+
+Este repositorio incluye una notebook interactiva de **Marimo** para aprender paso a paso cómo entrenar un agente de RL para French Solitaire.
+
+```powershell
+# 1) Activar el entorno (obligatorio)
+conda activate french-solitaire
+
+# 2) Abrir el tutorial en Marimo (ya incluido en environment.yml)
+marimo edit notebooks/tutorial.py
+```
+
+Notas:
+
+- La notebook está en `notebooks/tutorial.py`.
+- Marimo abre una interfaz web interactiva para ejecutar y modificar las celdas.
+- Sigue la guía del tutorial para entrenar un agente DQN y evaluar resultados.
+
 ## Estructura del proyecto (planeada)
 
 ```plaintext
