@@ -107,11 +107,22 @@ def prepare_upload_directory(checkpoint_path, temp_dir="./temp_hf_upload"):
     code_dir = temp_path / "code"
     code_dir.mkdir()
     
+    # Función para ignorar archivos/directorios innecesarios
+    def ignore_patterns(directory, files):
+        """Ignora __pycache__, .pyc, .pyo y otros archivos de cache."""
+        return [
+            f for f in files 
+            if f == '__pycache__' 
+            or f.endswith('.pyc') 
+            or f.endswith('.pyo')
+            or f.endswith('.pyd')
+        ]
+    
     # Copiar módulos principales
     for module in ["agent", "envs"]:
         module_src = Path(module)
         if module_src.exists():
-            shutil.copytree(module_src, code_dir / module)
+            shutil.copytree(module_src, code_dir / module, ignore=ignore_patterns)
             print(f"  ✓ Código copiado: {module}/")
     
     # Copiar environment.yml
@@ -131,7 +142,7 @@ def upload_to_hub(repo_id, folder_path, token=None, private=False, commit_messag
     Args:
         repo_id (str): ID del repositorio (username/repo-name)
         folder_path (str): ruta del directorio con los archivos
-        token (str): token de HF
+        token (str): token de HF (opcional, auto-detecta si usaste `huggingface-cli login`)
         private (bool): si el repo es privado
         commit_message (str): mensaje del commit
     """
@@ -142,18 +153,17 @@ def upload_to_hub(repo_id, folder_path, token=None, private=False, commit_messag
         print("Instalalo con: pip install huggingface-hub")
         sys.exit(1)
     
-    # Obtener token
+    # Obtener token (prioridad: argumento > env var > HF stored token)
     if token is None:
         token = os.getenv("HF_TOKEN")
-        if token is None:
-            print("\n⚠ Token de Hugging Face no proporcionado")
-            print("Opciones:")
-            print("  1. Pasar --token YOUR_TOKEN")
-            print("  2. Configurar variable de entorno HF_TOKEN")
-            print("  3. Usar `huggingface-cli login`")
-            sys.exit(1)
     
-    # Crear API
+    # Si no se proporciona token, HfApi automáticamente busca el token almacenado
+    # por `huggingface-cli login` en ~/.cache/huggingface/token
+    # No necesitamos hacer nada más, HfApi lo maneja automáticamente
+    
+    print("  ✓ Usando autenticación de Hugging Face")
+    
+    # Crear API (auto-detecta token almacenado si token=None)
     api = HfApi(token=token)
     
     print(f"\n📤 Subiendo modelo a: {repo_id}")
@@ -170,6 +180,28 @@ def upload_to_hub(repo_id, folder_path, token=None, private=False, commit_messag
         print(f"  ✓ Repositorio creado/verificado: {repo_id}")
     except Exception as e:
         print(f"  ⚠ Error al crear repositorio: {e}")
+    
+    # Limpiar archivos __pycache__ del repositorio (si existen)
+    try:
+        print("  🧹 Buscando archivos __pycache__ en el repositorio...")
+        files = api.list_repo_files(repo_id, repo_type="model")
+        pycache_files = [f for f in files if '__pycache__' in f or f.endswith('.pyc') or f.endswith('.pyo')]
+        
+        if pycache_files:
+            print(f"  🗑️  Eliminando {len(pycache_files)} archivos de cache...")
+            for file_path in pycache_files:
+                api.delete_file(
+                    path_in_repo=file_path,
+                    repo_id=repo_id,
+                    repo_type="model",
+                    commit_message=f"chore: remove {file_path}",
+                    token=token,
+                )
+            print(f"  ✓ {len(pycache_files)} archivos de cache eliminados")
+        else:
+            print(f"  ✓ No hay archivos de cache para eliminar")
+    except Exception as e:
+        print(f"  ⚠ No se pudieron limpiar archivos de cache: {e}")
     
     # Subir archivos
     try:

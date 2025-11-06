@@ -74,11 +74,11 @@ Goal:
 
 ## Training Details
 
-- **Episodes**: 15,000
-- **Training time**: ~X hours on [GPU/CPU]
-- **Win rate**: X.X% (1 peg remaining)
-- **Center win rate**: X.X% (perfect victories)
-- **Average pegs remaining**: X.X
+- **Episodes**: 10,000
+- **Training time**: ~20 minutes on NVIDIA GPU (CUDA 12.1)
+- **Win rate**: 100.0% (1 peg remaining)
+- **Center win rate**: 100.0% (perfect victories)
+- **Average pegs remaining**: 1.0
 
 Training was logged with **MLflow** and tracked in `./mlruns`.
 
@@ -99,12 +99,15 @@ conda activate french-solitaire
 ### Evaluate the model
 
 ```bash
-# Download the checkpoint from Hugging Face
-# (or use your local checkpoint)
+# Download checkpoint from this repo
+# The model file is: pytorch_model.pt
 
-# Run evaluation
+# Run evaluation (100 episodes)
 conda activate french-solitaire
-python eval.py --checkpoint checkpoints/dqn_french_solitaire.pt --episodes 100 --render
+python eval.py --checkpoint pytorch_model.pt --episodes 100
+
+# With visual rendering (shows all steps)
+python eval.py --checkpoint pytorch_model.pt --episodes 10 --render
 ```
 
 ### Load in Python
@@ -118,8 +121,8 @@ from envs.french_solitaire_env import FrenchSolitaireEnv
 env = FrenchSolitaireEnv()
 agent = DQNAgent(state_dim=49, action_dim=100)
 
-# Load checkpoint
-agent.load("checkpoints/dqn_french_solitaire.pt", load_optimizer=False)
+# Load checkpoint (pytorch_model.pt from this repo)
+agent.load("pytorch_model.pt", load_optimizer=False)
 agent.epsilon = 0.0  # Greedy (no exploration)
 
 # Play one episode
@@ -140,11 +143,11 @@ print(f"Victory: {info.get('center_win', False)}")
 
 | Metric | Value |
 |--------|-------|
-| Win rate (1 peg) | X.X% |
-| Center win rate (perfect) | X.X% |
-| Avg. reward per episode | X.X |
-| Avg. pegs remaining | X.X |
-| Avg. steps per episode | X.X |
+| Win rate (1 peg) | 100.0% |
+| Center win rate (perfect) | 100.0% |
+| Avg. reward per episode | 130.0 |
+| Avg. pegs remaining | 1.0 |
+| Avg. steps per episode | 31.0 |
 
 ## Limitations
 

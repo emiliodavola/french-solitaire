@@ -39,12 +39,20 @@ python train.py --help
 
 ### 4. Evaluar modelo
 ```powershell
-# Evaluar mejor modelo
+# Evaluar mejor modelo (solo métricas)
 python eval.py --checkpoint checkpoints/my-experiment_best.pt --episodes 100
 
-# Evaluar con renderizado
+# Evaluar con renderizado visual (muestra tablero en cada paso)
 python eval.py --checkpoint checkpoints/my-experiment_best.pt --episodes 10 --render
+
+# Renderizado + información adicional (estado interno, movimientos válidos)
+python eval.py --checkpoint checkpoints/my-experiment_best.pt --episodes 10 --render --verbose
+
+# Ver todas las opciones
+python eval.py --help
 ```
+
+**Nota:** `--render` ahora muestra la secuencia completa de movimientos paso a paso, no solo el tablero inicial y final.
 
 ### 5. Visualizar experimentos (MLflow)
 ```powershell
@@ -83,16 +91,33 @@ conda activate french-solitaire
 pip install huggingface-hub
 huggingface-cli login
 
-# 2. Subir mejor modelo
+# 2. Subir mejor modelo (detecta automáticamente tu token)
 python scripts/upload_to_hf.py \
   --checkpoint checkpoints/my-experiment_best.pt \
   --repo-id tu-usuario/french-solitaire
 ```
 
 **El script automáticamente:**
+- Detecta el token de `huggingface-cli login` (no necesitas pasarlo manualmente)
 - Renombra `my-experiment_best.pt` → `pytorch_model.pt` (estándar HF)
+- Limpia archivos `__pycache__` del repositorio
 - Sube checkpoint + README + código + configuración
 - Crea el repo en HuggingFace si no existe
+
+**Opciones adicionales:**
+```powershell
+# Crear repositorio privado
+python scripts/upload_to_hf.py \
+  --checkpoint checkpoints/my-experiment_best.pt \
+  --repo-id tu-usuario/french-solitaire \
+  --private
+
+# Mensaje de commit personalizado
+python scripts/upload_to_hf.py \
+  --checkpoint checkpoints/my-experiment_best.pt \
+  --repo-id tu-usuario/french-solitaire \
+  --commit-message "Update model - improved training"
+```
 
 
 

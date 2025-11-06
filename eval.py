@@ -69,7 +69,7 @@ def parse_args():
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="Imprimir detalles de cada episodio",
+        help="Imprimir información adicional (estado, movimientos válidos) en cada paso",
     )
     
     return parser.parse_args()
@@ -84,9 +84,9 @@ def evaluate_agent(env, agent, num_episodes=100, max_steps=200, render=False, re
         agent: agente DQN
         num_episodes (int): número de episodios
         max_steps (int): máximo de pasos por episodio
-        render (bool): si renderizar el juego
-        render_freq (int): frecuencia de renderizado
-        verbose (bool): imprimir detalles
+        render (bool): si renderizar el juego (muestra todos los pasos)
+        render_freq (int): frecuencia de renderizado (cada N episodios)
+        verbose (bool): imprimir información adicional (estado, movimientos válidos)
     
     Returns:
         dict: estadísticas de evaluación
@@ -112,8 +112,8 @@ def evaluate_agent(env, agent, num_episodes=100, max_steps=200, render=False, re
         # Renderizar si aplica
         should_render = render and ((episode % render_freq == 0) or verbose)
         if should_render:
-            print(f"--- Episodio {episode + 1}/{num_episodes} ---")
-            print(env.render())
+            print(f"\n--- Episodio {episode + 1}/{num_episodes} ---")
+            env.render()  # Ya imprime automáticamente con render_mode="human"
         
         while not done and steps < max_steps:
             # Seleccionar acción (greedy)
@@ -128,10 +128,15 @@ def evaluate_agent(env, agent, num_episodes=100, max_steps=200, render=False, re
             total_reward += reward
             steps += 1
             
-            if should_render and verbose:
-                print(f"Acción: {action} | Recompensa: {reward:+.1f} | Fichas: {info['pegs_remaining']}")
-                if done:
-                    print(env.render())
+            # Renderizar paso intermedio si está activado
+            if should_render:
+                print(f"\nPaso {steps} | Acción: {action} | Recompensa: {reward:+.1f} | Fichas: {info['pegs_remaining']}")
+                env.render()  # Ya imprime automáticamente con render_mode="human"
+                
+                # Si también está verbose, mostrar más detalles
+                if verbose:
+                    print(f"Estado: {state}")
+                    print(f"Movimientos válidos: {np.sum(mask)}")
         
         # Registrar métricas
         episode_rewards.append(total_reward)
@@ -146,7 +151,9 @@ def evaluate_agent(env, agent, num_episodes=100, max_steps=200, render=False, re
         
         if should_render:
             outcome = "VICTORIA ✅" if info.get("center_win", False) else ("1 ficha ⚠️" if info["pegs_remaining"] == 1 else "DERROTA ❌")
-            print(f"Resultado: {outcome} | Reward: {total_reward:.1f} | Pasos: {steps}\n")
+            print(f"\n{'='*60}")
+            print(f"Resultado: {outcome} | Reward total: {total_reward:.1f} | Pasos: {steps}")
+            print(f"{'='*60}\n")
     
     # Estadísticas finales
     win_rate = wins / num_episodes
