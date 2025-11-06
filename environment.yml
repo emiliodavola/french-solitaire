@@ -11,10 +11,24 @@ dependencies:
   - torchaudio
   - pytorch-cuda=12.1
   - numpy
+  - marimo
+  - mcp
+  - duckdb
+  - sqlglot
+  - altair
+  - vegafusion
+  - vl-convert-python
+  - ruff
+  - openai
+  - nbformat
+  - websockets
+  - python-lsp-server
   - pip
-  - pip:
-    - gymnasium
-    - mlflow
-    - matplotlib
-    - tensorboard
-    - pytest
+  - gymnasium
+  - mlflow
+  - matplotlib
+  - tensorboard
+  - pytest
+  - ty
+  - basedpyright
+  - huggingface-hub
