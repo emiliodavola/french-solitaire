@@ -166,7 +166,7 @@ print(f"Victory: {info.get('center_win', False)}")
 If you use this model or code, please cite:
 
 ```bibtex
-@misc{french-solitaire-dqn,
+@misc{french-solitaire,
   author = {Emilio Davola},
   title = {DQN Agent for French Solitaire},
   year = {2025},

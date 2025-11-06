@@ -3,7 +3,7 @@ Script para subir modelo entrenado a Hugging Face Hub
 
 Uso:
     conda activate french-solitaire
-    python scripts/upload_to_hf.py --checkpoint checkpoints/dqn_final.pt --repo-id username/french-solitaire-dqn
+    python scripts/upload_to_hf.py --checkpoint checkpoints/dqn_final.pt --repo-id username/french-solitaire
 """
 import argparse
 import os
