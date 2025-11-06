@@ -93,11 +93,11 @@ def _(mo):
     #### Componentes clave:
 
     - **Entorno**: el juego French Solitaire
-    - **Estado (s)**: configuración actual del tablero (32 posiciones)
-    - **Acción (a)**: mover una ficha (origen → destino)
-    - **Recompensa (r)**: feedback numérico tras cada acción
-    - **Política (π)**: estrategia del agente para elegir acciones
-    - **Valor Q(s,a)**: recompensa esperada al tomar acción `a` en estado `s`
+    - **Estado ($s$)**: configuración actual del tablero (32 posiciones)
+    - **Acción ($a$)**: mover una ficha (origen → destino)
+    - **Recompensa ($r$)**: feedback numérico tras cada acción
+    - **Política ($\pi$)**: estrategia del agente para elegir acciones
+    - **Valor $Q(s,a)$**: recompensa esperada al tomar acción $a$ en estado $s$
 
     ### Reglas del French Solitaire
 
@@ -456,10 +456,14 @@ def _(mo, np):
 
             pegs_remaining = int(np.sum(self.board))
 
-            # Calcular recompensa
+            # Calcular recompensa (victoria SOLO si la última ficha queda en el centro)
             if pegs_remaining == 1:
-                reward = 100.0  # Victoria!
-                terminated = True
+                if self.board[3, 3] == 1.0:
+                    reward = 150.0  # Victoria válida en el centro
+                    terminated = True
+                else:
+                    reward = -100.0  # Final inválido (no está en el centro)
+                    terminated = True
             else:
                 reward = 1.0  # Progreso (reducimos una ficha)
                 terminated = False
@@ -478,6 +482,8 @@ def _(mo, np):
                 "valid": True,
                 "moves_available": int(self.action_mask.sum()),
                 "action_mask": self.action_mask.copy(),
+                "center_occupied": bool(self.board[3, 3] == 1.0),
+                "center_win": bool(pegs_remaining == 1 and self.board[3, 3] == 1.0),
             }
 
             return observation, reward, terminated, False, info
@@ -577,7 +583,7 @@ def _(mo):
     ### Proceso de entrenamiento
 
     1. **Exploración**: el agente toma acciones aleatorias ($\epsilon$-greedy)
-    2. **Almacenamiento**: guardar $(s, a, r, s', 	ext{done})$ en replay buffer
+    2. **Almacenamiento**: guardar $(s, a, r, s', \text{done})$ en replay buffer
     3. **Muestreo**: tomar batch aleatorio del buffer
     4. **Actualización**: minimizar pérdida entre $Q$ predicho y $Q$ objetivo
     5. **Actualización de target**: copiar pesos de red principal cada N pasos
@@ -1004,7 +1010,7 @@ def _(SimplifiedFrenchSolitaireEnv, agent, mo, np):
                         episode_rewards.append(total_reward)
                         episode_losses.append(np.mean(losses) if losses else 0)
                         episode_pegs.append(info["pegs_remaining"])
-                        if info["pegs_remaining"] == 1:
+                        if info.get("center_win", False):
                             wins += 1
 
                         # Logging episodios
@@ -1106,7 +1112,7 @@ def _(SimplifiedFrenchSolitaireEnv, agent, mo, np):
                 episode_rewards.append(total_reward)
                 episode_losses.append(np.mean(losses) if losses else 0)
                 episode_pegs.append(info["pegs_remaining"])
-                if info["pegs_remaining"] == 1:
+                if info.get("center_win", False):
                     wins += 1
 
                 if verbose and (episode + 1) % 10 == 0:
@@ -1317,7 +1323,7 @@ def _(mo):
                 mask = info.get("action_mask")
 
             avg_pegs.append(info["pegs_remaining"])
-            if info["pegs_remaining"] == 1:
+            if info.get("center_win", False):
                 wins += 1
 
         return {
@@ -1375,7 +1381,7 @@ def _(agent, env, np):
                 mask = info.get("action_mask")
 
             avg_pegs.append(info["pegs_remaining"])
-            if info["pegs_remaining"] == 1:
+            if info.get("center_win", False):
                 wins += 1
 
         return {
@@ -1558,10 +1564,14 @@ def _(np, torch):
     import time
 
     def _dir_to_str(dr, dc):
-        if dr == 0 and dc == 1: return "→"
-        if dr == 0 and dc == -1: return "←"
-        if dr == 1 and dc == 0: return "↓"
-        if dr == -1 and dc == 0: return "↑"
+        if dr == 0 and dc == 1:
+            return "→"
+        if dr == 0 and dc == -1:
+            return "←"
+        if dr == 1 and dc == 0:
+            return "↓"
+        if dr == -1 and dc == 0:
+            return "↑"
         return f"({dr},{dc})"
 
     def describe_action(env, action_idx):
@@ -1700,20 +1710,8 @@ def _(np, torch):
     return (run_greedy_episode,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(SimplifiedFrenchSolitaireEnv, agent, run_greedy_episode):
-    # Ejecuta un episodio greedy mostrando paso a paso
-    # Usa una nueva instancia del entorno para no interferir con el que ya tengas
-    demo_env = SimplifiedFrenchSolitaireEnv()
-    traj = run_greedy_episode(
-        agent,
-        demo_env,
-        top_k=5,        # muestra las 5 mejores acciones por Q
-        pause=False,    # pon True si quieres avanzar con Enter
-        delay=0.2,      # o un pequeño delay entre pasos
-        max_steps=200,
-        render_each_step=True
-    )
     # Ejecuta un episodio greedy mostrando paso a paso
     # Usa una nueva instancia del entorno para no interferir con el que ya tengas
     demo_env = SimplifiedFrenchSolitaireEnv()
