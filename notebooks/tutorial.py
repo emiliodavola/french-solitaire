@@ -51,6 +51,37 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
+    """Configura MLflow (si está disponible) para logging local en ./mlruns."""
+
+    try:
+        import mlflow
+
+        # Tracking local por defecto
+        mlflow.set_tracking_uri("file:./mlruns")
+        mlflow.set_experiment("french-solitaire")
+        mlflow_available = True
+        status_md = "MLflow configurado ✅ — Tracking URI: file:./mlruns, Experimento: 'french-solitaire'"
+    except Exception as e:
+        mlflow = None
+        mlflow_available = False
+        status_md = (
+            "MLflow no disponible ⚠️ — instala y activa el entorno:\n\n"
+            "- conda activate french-solitaire\n"
+            "- pip install mlflow\n"
+            "Luego re-ejecuta esta celda.\n\n"
+            f"Detalle: {e}"
+        )
+
+    mo.md(f"""
+    ### Registro de experimentos (MLflow)
+
+    {status_md}
+    """)
+    return mlflow, mlflow_available
+
+
+@app.cell(hide_code=True)
+def _(mo):
     mo.md("""
     ## 📚 Parte 1: Conceptos básicos de RL
 
@@ -254,9 +285,68 @@ def _(mo, np):
                 low=0, high=1, shape=(49,), dtype=np.float32
             )
 
-            # Espacio de acción: discreto (usaremos índice de movimiento)
-            # Simplificación: máximo ~76 movimientos posibles en cualquier estado
-            self.action_space = spaces.Discrete(100)
+            # Espacio de acción: discreto con mapeo FIJO
+            # Precomputamos todas las acciones geométricamente posibles (origen + dirección)
+            # y las mapeamos a índices estables. Rellenamos hasta 100 con "no-ops" inválidos.
+            self.directions = [
+                (0, 1),  # derecha
+                (0, -1),  # izquierda
+                (1, 0),  # abajo
+                (-1, 0),  # arriba
+            ]
+            self.all_actions = []  # lista de tuplas (r_from, c_from, dr, dc)
+            valid_set = set()
+            for r, c in [
+                (0, 2),
+                (0, 3),
+                (0, 4),
+                (1, 2),
+                (1, 3),
+                (1, 4),
+                (2, 0),
+                (2, 1),
+                (2, 2),
+                (2, 3),
+                (2, 4),
+                (2, 5),
+                (2, 6),
+                (3, 0),
+                (3, 1),
+                (3, 2),
+                (3, 3),
+                (3, 4),
+                (3, 5),
+                (3, 6),
+                (4, 0),
+                (4, 1),
+                (4, 2),
+                (4, 3),
+                (4, 4),
+                (4, 5),
+                (4, 6),
+                (5, 2),
+                (5, 3),
+                (5, 4),
+                (6, 2),
+                (6, 3),
+                (6, 4),
+            ]:
+                valid_set.add((r, c))
+            for r, c in valid_set:
+                for dr, dc in self.directions:
+                    jump_r, jump_c = r + dr, c + dc
+                    land_r, land_c = r + 2 * dr, c + 2 * dc
+                    if (jump_r, jump_c) in valid_set and (
+                        land_r,
+                        land_c,
+                    ) in valid_set:
+                        self.all_actions.append((r, c, dr, dc))
+            # Relleno hasta 100 con marcadores inválidos
+            self.max_actions = 100
+            if len(self.all_actions) > self.max_actions:
+                # En caso extremo, truncar para mantener compatibilidad con agente
+                self.all_actions = self.all_actions[: self.max_actions]
+            self.action_space = spaces.Discrete(self.max_actions)
 
             # Posiciones válidas en el tablero (cruz europea)
             self.valid_positions = [
@@ -295,10 +385,12 @@ def _(mo, np):
                 (6, 4),
             ]
 
-            self.board = None
-            self.valid_moves = []
+            # Inicializar tablero para evitar estados None en análisis estático
+            self.board = np.zeros((7, 7), dtype=np.float32)
+            self.valid_moves = []  # lista de movimientos válidos (pares (from,to))
+            self.action_mask = np.zeros(self.max_actions, dtype=np.int8)
 
-        def reset(self, seed=None, options=None):
+        def reset(self, *, seed=None, options=None):
             super().reset(seed=seed)
 
             # Crear tablero inicial
@@ -310,53 +402,51 @@ def _(mo, np):
             self._update_valid_moves()
 
             observation = self.board.flatten()
-            info = {"pegs_remaining": int(np.sum(self.board))}
+            info = {
+                "pegs_remaining": int(np.sum(self.board)),
+                "action_mask": self.action_mask.copy(),
+            }
 
             return observation, info
 
         def _update_valid_moves(self):
-            """Actualiza lista de movimientos válidos en el estado actual"""
+            """Actualiza lista de movimientos válidos y la máscara de acciones."""
             self.valid_moves = []
-            directions = [
-                (0, 1),
-                (0, -1),
-                (1, 0),
-                (-1, 0),
-            ]  # derecha, izq, abajo, arriba
-
-            for r, c in self.valid_positions:
-                if self.board[r, c] == 1:  # Hay ficha
-                    for dr, dc in directions:
-                        jump_r, jump_c = r + dr, c + dc
-                        land_r, land_c = r + 2 * dr, c + 2 * dc
-
-                        # Validar movimiento
-                        if (
-                            0 <= land_r < 7
-                            and 0 <= land_c < 7
-                            and (land_r, land_c) in self.valid_positions
-                            and self.board[jump_r, jump_c] == 1
-                            and self.board[land_r, land_c] == 0
-                        ):
-                            self.valid_moves.append(((r, c), (land_r, land_c)))
+            self.action_mask.fill(0)
+            for idx, (r_from, c_from, dr, dc) in enumerate(self.all_actions):
+                # Acciones de relleno (si las hay) quedan inválidas
+                if idx >= self.max_actions:
+                    break
+                jump_r, jump_c = r_from + dr, c_from + dc
+                land_r, land_c = r_from + 2 * dr, c_from + 2 * dc
+                if (
+                    self.board[r_from, c_from] == 1
+                    and self.board[jump_r, jump_c] == 1
+                    and self.board[land_r, land_c] == 0
+                ):
+                    self.action_mask[idx] = 1
+                    self.valid_moves.append(((r_from, c_from), (land_r, land_c)))
 
         def step(self, action):
             """
             Ejecuta una acción (índice de movimiento)
             Retorna: observation, reward, terminated, truncated, info
             """
-            # Validar que la acción sea válida
-            if action >= len(self.valid_moves):
-                # Acción inválida (el agente eligió un índice fuera de rango)
+            # Validar que la acción sea válida segun la máscara
+            if action >= self.max_actions or self.action_mask[action] == 0:
+                # Acción inválida (índice fuera de rango o no válida en este estado)
                 reward = -10.0
                 observation = self.board.flatten()
-                info = {"pegs_remaining": int(np.sum(self.board)), "valid": False}
+                info = {
+                    "pegs_remaining": int(np.sum(self.board)),
+                    "valid": False,
+                    "action_mask": self.action_mask.copy(),
+                }
                 return observation, reward, False, False, info
 
-            # Ejecutar movimiento válido
-            (r_from, c_from), (r_to, c_to) = self.valid_moves[action]
-            dr = (r_to - r_from) // 2
-            dc = (c_to - c_from) // 2
+            # Ejecutar movimiento válido (derivado de la acción fija)
+            r_from, c_from, dr, dc = self.all_actions[action]
+            r_to, c_to = r_from + 2 * dr, c_from + 2 * dc
             r_jump, c_jump = r_from + dr, c_from + dc
 
             # Aplicar movimiento
@@ -386,14 +476,14 @@ def _(mo, np):
             info = {
                 "pegs_remaining": pegs_remaining,
                 "valid": True,
-                "moves_available": len(self.valid_moves),
+                "moves_available": int(self.action_mask.sum()),
+                "action_mask": self.action_mask.copy(),
             }
 
             return observation, reward, terminated, False, info
 
         def render(self):
             """Imprime el tablero en formato ASCII"""
-            symbols = {0.0: ".", 1.0: "O", -1.0: " "}
             print("\n    0 1 2 3 4 5 6")
             for i, row in enumerate(self.board):
                 row_str = f" {i}  "
@@ -429,10 +519,15 @@ def _(mo, np):
 
 
 @app.cell(hide_code=True)
-def _(env, mo):
+def _(env, mo, np):
     # Simular un paso aleatorio
-    env.reset(seed=42)
-    action = 0  # Primera acción válida
+    obs0, info0 = env.reset(seed=42)
+    # Elegir la primera acción válida usando la máscara
+    valid_indices = np.flatnonzero(info0.get("action_mask", []))
+    if len(valid_indices) > 0:
+        action = int(valid_indices[0])
+    else:
+        action = 0
     obs_new, reward, terminated, truncated, info_step = env.step(action)
 
     mo.md(f"""
@@ -440,7 +535,7 @@ def _(env, mo):
 
     ```python
     env.reset()
-    action = 0  # Primera acción de la lista de movimientos válidos
+    action = next(iter(np.flatnonzero(info['action_mask'])))  # Índice de una acción válida
     obs, reward, terminated, truncated, info = env.step(action)
     ```
 
@@ -482,7 +577,7 @@ def _(mo):
     ### Proceso de entrenamiento
 
     1. **Exploración**: el agente toma acciones aleatorias ($\epsilon$-greedy)
-    2. **Almacenamiento**: guardar $(s, a, r, s', \text{done})$ en replay buffer
+    2. **Almacenamiento**: guardar $(s, a, r, s', 	ext{done})$ en replay buffer
     3. **Muestreo**: tomar batch aleatorio del buffer
     4. **Actualización**: minimizar pérdida entre $Q$ predicho y $Q$ objetivo
     5. **Actualización de target**: copiar pesos de red principal cada N pasos
@@ -537,14 +632,18 @@ def _(mo, np):
         def __init__(self, capacity=10000):
             self.buffer = deque(maxlen=capacity)
 
-        def push(self, state, action, reward, next_state, done):
-            """Añadir experiencia al buffer"""
-            self.buffer.append((state, action, reward, next_state, done))
+        def push(self, state, action, reward, next_state, done, next_action_mask):
+            """Añadir experiencia al buffer, incluyendo máscara de acciones válidas en el siguiente estado"""
+            self.buffer.append(
+                (state, action, reward, next_state, done, next_action_mask)
+            )
 
         def sample(self, batch_size):
             """Muestrear batch aleatorio"""
             batch = random.sample(self.buffer, batch_size)
-            states, actions, rewards, next_states, dones = zip(*batch)
+            states, actions, rewards, next_states, dones, next_action_masks = zip(
+                *batch
+            )
 
             return (
                 np.array(states),
@@ -552,6 +651,7 @@ def _(mo, np):
                 np.array(rewards),
                 np.array(next_states),
                 np.array(dones),
+                np.array(next_action_masks),
             )
 
         def __len__(self):
@@ -565,14 +665,14 @@ def _(mo, np):
             self,
             state_dim=49,
             action_dim=100,
-            lr=1e-3,
+            lr=5e-4,
             gamma=0.99,
             epsilon_start=1.0,
             epsilon_end=0.01,
             epsilon_decay=0.995,
             buffer_size=10000,
             batch_size=64,
-            target_update_freq=10,
+            target_update_freq=100,
         ):
             self.device = device
             self.action_dim = action_dim
@@ -597,28 +697,37 @@ def _(mo, np):
             # Contador de actualizaciones
             self.update_count = 0
 
-        def select_action(self, state, valid_moves_count, training=True):
+        def select_action(
+            self, state, valid_moves_count=None, action_mask=None, training=True
+        ):
             """
             Selecciona acción usando ε-greedy:
             - Con probabilidad ε: acción aleatoria (exploración)
             - Con probabilidad 1-ε: mejor acción según Q-network (explotación)
             """
+            # Determinar máscara válida
+            if action_mask is not None:
+                valid_indices = np.flatnonzero(action_mask)
+            else:
+                # Fallback a conteo (asume primeras 'valid_moves_count' acciones válidas)
+                if valid_moves_count is None:
+                    valid_indices = np.arange(self.action_dim)
+                else:
+                    valid_indices = np.arange(valid_moves_count)
+
             if training and random.random() < self.epsilon:
                 # Exploración: acción aleatoria entre las válidas
-                return random.randint(0, valid_moves_count - 1)
+                return int(np.random.choice(valid_indices))
             else:
-                # Explotación: mejor Q-value
+                # Explotación: mejor Q-value entre las válidas
                 with torch.no_grad():
                     state_tensor = (
                         torch.FloatTensor(state).unsqueeze(0).to(self.device)
                     )
-                    q_values = self.q_network(state_tensor)
-
-                    # Enmascarar acciones inválidas
-                    q_values_np = q_values.cpu().numpy()[0]
-                    q_values_np[valid_moves_count:] = -np.inf
-
-                    return int(np.argmax(q_values_np))
+                    q_values = self.q_network(state_tensor).cpu().numpy()[0]
+                    masked_q = np.full_like(q_values, -np.inf)
+                    masked_q[valid_indices] = q_values[valid_indices]
+                    return int(np.argmax(masked_q))
 
         def train_step(self):
             """Realiza un paso de entrenamiento usando un batch del replay buffer"""
@@ -626,9 +735,14 @@ def _(mo, np):
                 return None
 
             # Muestrear batch
-            states, actions, rewards, next_states, dones = (
-                self.replay_buffer.sample(self.batch_size)
-            )
+            (
+                states,
+                actions,
+                rewards,
+                next_states,
+                dones,
+                next_action_masks,
+            ) = self.replay_buffer.sample(self.batch_size)
 
             # Convertir a tensors
             states = torch.FloatTensor(states).to(self.device)
@@ -636,19 +750,32 @@ def _(mo, np):
             rewards = torch.FloatTensor(rewards).to(self.device)
             next_states = torch.FloatTensor(next_states).to(self.device)
             dones = torch.FloatTensor(dones).to(self.device)
+            next_action_masks = torch.BoolTensor(next_action_masks).to(self.device)
 
             # Q-values actuales: Q(s, a)
             current_q = (
                 self.q_network(states).gather(1, actions.unsqueeze(1)).squeeze(1)
             )
 
-            # Q-values objetivo: r + γ * max_a' Q_target(s', a')
+            # Double DQN con enmascarado de acciones inválidas en s'
             with torch.no_grad():
-                next_q = self.target_network(next_states).max(1)[0]
+                # Máscara booleana: True donde acción es válida
+                valid_mask = next_action_masks
+
+                q_next_main = self.q_network(next_states)
+                q_next_main = q_next_main.masked_fill(~valid_mask, -1e9)
+                next_actions = q_next_main.argmax(dim=1)
+
+                q_next_target = self.target_network(next_states)
+                q_next_target = q_next_target.masked_fill(~valid_mask, -1e9)
+                next_q = q_next_target.gather(
+                    1, next_actions.unsqueeze(1)
+                ).squeeze(1)
+
                 target_q = rewards + (1 - dones) * self.gamma * next_q
 
-            # Pérdida (MSE o Huber)
-            loss = nn.functional.mse_loss(current_q, target_q)
+            # Pérdida (Huber)
+            loss = nn.functional.smooth_l1_loss(current_q, target_q)
 
             # Backpropagation
             self.optimizer.zero_grad()
@@ -679,7 +806,7 @@ def _(mo, np):
     ```
 
     **2. Hiperparámetros:**
-    - Learning rate: `{1e-3}`
+    - Learning rate: `{agent.optimizer.param_groups[0]["lr"]}`
     - Gamma (descuento): `{agent.gamma}`
     - Epsilon inicial: `{1.0}` → final: `{agent.epsilon_end}`
     - Batch size: `{agent.batch_size}`
@@ -689,7 +816,7 @@ def _(mo, np):
 
     **Parámetros totales:** {sum(p.numel() for p in agent.q_network.parameters())}
     """)
-    return (agent,)
+    return agent, torch
 
 
 @app.cell(hide_code=True)
@@ -763,65 +890,245 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(SimplifiedFrenchSolitaireEnv, agent, mo, np):
-    # Función de entrenamiento (versión simplificada para demo)
-    def train_dqn_demo(num_episodes=100, verbose=True):
-        """Entrena el agente DQN en French Solitaire"""
+    # Función de entrenamiento (versión extendida con logging y checkpoints)
+    def train_dqn_demo(
+        num_episodes=100,
+        verbose=True,
+        use_mlflow=True,
+        run_name="tutorial-dqn",
+        checkpoint_path="checkpoints/dqn_tutorial.pt",
+        mlflow=None,
+    ):
+        """
+        Entrena el agente DQN en French Solitaire.
+
+        Parámetros:
+        - num_episodes: episodios a entrenar
+        - verbose: imprime promedios cada 10 episodios
+        - use_mlflow: si True y mlflow disponible, registra parámetros y métricas
+        - run_name: nombre de la corrida en MLflow
+        - checkpoint_path: ruta donde guardar el checkpoint al final
+        - mlflow: módulo mlflow ya importado (o None)
+        """
+        import os
+        import torch
+
         env_train = SimplifiedFrenchSolitaireEnv()
 
         episode_rewards = []
         episode_losses = []
         episode_pegs = []
         wins = 0
+        run_id = None
 
-        for episode in range(num_episodes):
-            state, info = env_train.reset()
-            total_reward = 0
-            done = False
-            losses = []
+        # Extraer LR del optimizador
+        try:
+            lr = agent.optimizer.param_groups[0]["lr"]
+        except Exception:
+            lr = None
 
-            while not done:
-                # Seleccionar acción
-                valid_moves_count = len(env_train.valid_moves)
-                if valid_moves_count == 0:
-                    break
+        # MLflow: iniciar corrida si aplica (tipo seguro)
+        from typing import Any
 
-                action = agent.select_action(
-                    state, valid_moves_count, training=True
-                )
+        mlf: Any = mlflow
+        active_mlflow = bool(
+            use_mlflow and (mlf is not None) and hasattr(mlf, "start_run")
+        )
+        if active_mlflow:
+            try:
+                with mlf.start_run(run_name=run_name) as run:
+                    run_id = run.info.run_id
+                    # Parámetros
+                    mlf.log_params(
+                        {
+                            "algorithm": "DQN",
+                            "learning_rate": lr if lr is not None else 1e-3,
+                            "gamma": agent.gamma,
+                            "batch_size": agent.batch_size,
+                            "buffer_size": len(agent.replay_buffer.buffer)
+                            if hasattr(agent.replay_buffer, "buffer")
+                            else 10000,
+                            "target_update_freq": agent.target_update_freq,
+                            "action_dim": agent.action_dim,
+                        }
+                    )
 
-                # Ejecutar acción
-                next_state, reward, done, truncated, info = env_train.step(action)
+                    # Loop de entrenamiento (con máscara de acciones)
+                    max_steps = 200
+                    for episode in range(num_episodes):
+                        state, info = env_train.reset()
+                        mask = info.get("action_mask")
+                        total_reward = 0
+                        done = False
+                        losses = []
+                        steps = 0
 
-                # Guardar experiencia
-                agent.replay_buffer.push(state, action, reward, next_state, done)
+                        while (not done) and (steps < max_steps):
+                            if mask is None or int(np.sum(mask)) == 0:
+                                break
 
-                # Entrenar
-                loss = agent.train_step()
-                if loss is not None:
-                    losses.append(loss)
+                            action = agent.select_action(
+                                state, action_mask=mask, training=True
+                            )
 
-                state = next_state
-                total_reward += reward
+                            next_state, reward, done, truncated, info = (
+                                env_train.step(action)
+                            )
 
-            # Decay epsilon
-            agent.decay_epsilon()
+                            next_mask = info.get("action_mask")
 
-            # Estadísticas
-            episode_rewards.append(total_reward)
-            episode_losses.append(np.mean(losses) if losses else 0)
-            episode_pegs.append(info["pegs_remaining"])
+                            agent.replay_buffer.push(
+                                state,
+                                action,
+                                reward,
+                                next_state,
+                                done,
+                                next_mask
+                                if next_mask is not None
+                                else np.zeros(agent.action_dim, dtype=np.int8),
+                            )
 
-            if info["pegs_remaining"] == 1:
-                wins += 1
+                            loss = agent.train_step()
+                            if loss is not None:
+                                losses.append(loss)
 
-            if verbose and (episode + 1) % 10 == 0:
-                avg_reward = np.mean(episode_rewards[-10:])
-                print(
-                    f"Ep {episode + 1}/{num_episodes} | "
-                    f"Avg Reward: {avg_reward:.2f} | "
-                    f"Epsilon: {agent.epsilon:.3f} | "
-                    f"Wins: {wins}"
-                )
+                            state = next_state
+                            mask = next_mask
+                            total_reward += reward
+                            steps += 1
+
+                        # Decay epsilon por episodio
+                        agent.decay_epsilon()
+
+                        # Estadísticas por episodio
+                        episode_rewards.append(total_reward)
+                        episode_losses.append(np.mean(losses) if losses else 0)
+                        episode_pegs.append(info["pegs_remaining"])
+                        if info["pegs_remaining"] == 1:
+                            wins += 1
+
+                        # Logging episodios
+                        mlf.log_metrics(
+                            {
+                                "reward": float(total_reward),
+                                "epsilon": float(agent.epsilon),
+                                "loss": float(episode_losses[-1]),
+                                "pegs": int(episode_pegs[-1]),
+                                "wins_cumulative": int(wins),
+                                "steps": int(steps),
+                            },
+                            step=episode,
+                        )
+
+                        if verbose and (episode + 1) % 10 == 0:
+                            avg_reward = np.mean(episode_rewards[-10:])
+                            print(
+                                f"Ep {episode + 1}/{num_episodes} | "
+                                f"Avg Reward: {avg_reward:.2f} | "
+                                f"Epsilon: {agent.epsilon:.3f} | "
+                                f"Wins: {wins}"
+                            )
+
+                    # Guardar checkpoint y registrarlo como artefacto
+                    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+                    torch.save(
+                        {
+                            "q_network": agent.q_network.state_dict(),
+                            "optimizer": agent.optimizer.state_dict(),
+                            "epsilon": agent.epsilon,
+                            "episodes": num_episodes,
+                        },
+                        checkpoint_path,
+                    )
+                    if hasattr(mlf, "log_artifact"):
+                        mlf.log_artifact(checkpoint_path)
+
+                    # Métricas finales
+                    mlf.log_metrics(
+                        {
+                            "win_rate": wins / num_episodes,
+                            "avg_reward": float(
+                                np.mean(episode_rewards)
+                                if episode_rewards
+                                else 0.0
+                            ),
+                        }
+                    )
+
+            except Exception as e:
+                # Si falla MLflow, continuar sin logging
+                print(f"[MLflow] Advertencia: {e}. Continuando sin logging.")
+                active_mlflow = False
+
+        if not active_mlflow:
+            # Loop sin MLflow (idéntico, sin llamadas de logging)
+            max_steps = 200
+            for episode in range(num_episodes):
+                state, info = env_train.reset()
+                mask = info.get("action_mask")
+                total_reward = 0
+                done = False
+                losses = []
+                steps = 0
+
+                while (not done) and (steps < max_steps):
+                    if mask is None or int(np.sum(mask)) == 0:
+                        break
+
+                    action = agent.select_action(
+                        state, action_mask=mask, training=True
+                    )
+                    next_state, reward, done, truncated, info = env_train.step(
+                        action
+                    )
+
+                    next_mask = info.get("action_mask")
+                    agent.replay_buffer.push(
+                        state,
+                        action,
+                        reward,
+                        next_state,
+                        done,
+                        next_mask
+                        if next_mask is not None
+                        else np.zeros(agent.action_dim, dtype=np.int8),
+                    )
+                    loss = agent.train_step()
+                    if loss is not None:
+                        losses.append(loss)
+
+                    state = next_state
+                    mask = next_mask
+                    total_reward += reward
+                    steps += 1
+
+                agent.decay_epsilon()
+                episode_rewards.append(total_reward)
+                episode_losses.append(np.mean(losses) if losses else 0)
+                episode_pegs.append(info["pegs_remaining"])
+                if info["pegs_remaining"] == 1:
+                    wins += 1
+
+                if verbose and (episode + 1) % 10 == 0:
+                    avg_reward = np.mean(episode_rewards[-10:])
+                    print(
+                        f"Ep {episode + 1}/{num_episodes} | "
+                        f"Avg Reward: {avg_reward:.2f} | "
+                        f"Epsilon: {agent.epsilon:.3f} | "
+                        f"Wins: {wins}"
+                    )
+
+            # Guardar checkpoint al final (sin registrar artefacto)
+            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+            torch.save(
+                {
+                    "q_network": agent.q_network.state_dict(),
+                    "optimizer": agent.optimizer.state_dict(),
+                    "epsilon": agent.epsilon,
+                    "episodes": num_episodes,
+                },
+                checkpoint_path,
+            )
 
         return {
             "rewards": episode_rewards,
@@ -829,35 +1136,20 @@ def _(SimplifiedFrenchSolitaireEnv, agent, mo, np):
             "pegs": episode_pegs,
             "wins": wins,
             "win_rate": wins / num_episodes,
+            "checkpoint_path": checkpoint_path,
+            "mlflow_run_id": run_id,
         }
 
 
-    # NOTA: No ejecutamos el entrenamiento automáticamente aquí
-    # (consumiría mucho tiempo en una demo interactiva)
-    # El usuario puede ejecutar manualmente: results = train_dqn_demo(100)
-
     mo.md("""
-    ### Función de entrenamiento definida ✅
+    ### Función de entrenamiento definida ✅ (con logging y checkpoints)
 
-    Para entrenar el agente, ejecuta en una celda nueva:
+    - Registra parámetros y métricas en **MLflow** (si está disponible)
+    - Guarda un **checkpoint** en `checkpoints/dqn_tutorial.pt`
 
-    ```python
-    results = train_dqn_demo(num_episodes=100, verbose=True)
-    print(f"Tasa de victoria: {results['win_rate']:.2%}")
-    ```
-
-    **Advertencia**: El entrenamiento puede tardar varios minutos dependiendo de:
-    - Número de episodios
-    - Velocidad de GPU/CPU
-    - Complejidad del entorno
-
-    En producción, usarías:
-    - 10,000+ episodios
-    - Checkpointing cada 1000 episodios
-    - Early stopping si converge
-    - Tracking con MLflow
+    Puedes re-ejecutarla con distintos episodios y nombres de corrida.
     """)
-    return
+    return (train_dqn_demo,)
 
 
 @app.cell(hide_code=True)
@@ -918,6 +1210,86 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
+def _(mlflow, mlflow_available, mo, train_dqn_demo):
+    from datetime import datetime
+
+    # Entrenamiento corto automático para el tutorial (rápido y con logging)
+    EPISODES_TUTORIAL = 15_000
+    RUN_NAME = f"tutorial-dqn-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+    results = train_dqn_demo(
+        num_episodes=EPISODES_TUTORIAL,
+        verbose=True,
+        use_mlflow=mlflow_available,
+        run_name=RUN_NAME,
+        mlflow=mlflow,
+    )
+
+    run_info = (
+        f"Run ID: `{results['mlflow_run_id']}` en experimento 'french-solitaire'"
+        if (mlflow_available and results.get("mlflow_run_id"))
+        else "Sin MLflow (no disponible en el entorno)"
+    )
+
+    mo.md(f"""
+    ## 🚀 Entrenamiento automático del tutorial
+
+    - Episodios: **{EPISODES_TUTORIAL}**
+    - Win rate: **{results["win_rate"]:.2%}**
+    - Checkpoint guardado en: `{results["checkpoint_path"]}`
+    - {run_info}
+
+    Para explorar los experimentos localmente con MLflow UI (opcional):
+
+    ```powershell
+    conda activate french-solitaire
+    mlflow ui --backend-store-uri file:./mlruns
+    ```
+    """)
+    return EPISODES_TUTORIAL, results
+
+
+@app.cell(hide_code=True)
+def _(np, results):
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+    # Recompensa
+    axes[0, 0].plot(results['rewards'])
+    axes[0, 0].set_title('Recompensa por Episodio')
+    axes[0, 0].set_xlabel('Episodio')
+    axes[0, 0].set_ylabel('Recompensa Total')
+
+    # Pérdida
+    axes[0, 1].plot(results['losses'])
+    axes[0, 1].set_title('Pérdida (Loss)')
+    axes[0, 1].set_xlabel('Episodio')
+    axes[0, 1].set_ylabel('MSE Loss')
+
+    # Fichas restantes
+    axes[1, 0].plot(results['pegs'])
+    axes[1, 0].set_title('Fichas Restantes al Final')
+    axes[1, 0].set_xlabel('Episodio')
+    axes[1, 0].set_ylabel('Fichas')
+    axes[1, 0].axhline(y=1, color='r', linestyle='--', label='Objetivo')
+    axes[1, 0].legend()
+
+    # Tasa de victoria acumulada
+    wins_cumulative = np.cumsum([1 if p == 1 else 0 for p in results['pegs']])
+    episodes_range = np.arange(1, len(wins_cumulative) + 1)
+    win_rate_cumulative = wins_cumulative / episodes_range
+    axes[1, 1].plot(win_rate_cumulative)
+    axes[1, 1].set_title('Tasa de Victoria Acumulada')
+    axes[1, 1].set_xlabel('Episodio')
+    axes[1, 1].set_ylabel('Win Rate')
+
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## 🎮 Parte 6: Evaluación del agente entrenado
@@ -935,14 +1307,14 @@ def _(mo):
         for episode in range(num_episodes):
             state, info = env.reset()
             done = False
+            mask = info.get("action_mask")
 
             while not done:
-                valid_moves = len(env.valid_moves)
-                if valid_moves == 0:
+                if mask is None or int(np.sum(mask)) == 0:
                     break
-
-                action = agent.select_action(state, valid_moves, training=False)
+                action = agent.select_action(state, action_mask=mask, training=False)
                 state, reward, done, _, info = env.step(action)
+                mask = info.get("action_mask")
 
             avg_pegs.append(info["pegs_remaining"])
             if info["pegs_remaining"] == 1:
@@ -980,6 +1352,60 @@ def _(mo):
     agent.epsilon = checkpoint['epsilon']
     ```
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(agent, env, np):
+    def evaluate_agent(agent, env, num_episodes=100):
+        agent.epsilon = 0.0  # Sin exploración
+        wins = 0
+        avg_pegs = []
+
+        for episode in range(num_episodes):
+            state, info = env.reset()
+            done = False
+            mask = info.get("action_mask")
+
+            while not done:
+                if mask is None or int(np.sum(mask)) == 0:
+                    break
+                action = agent.select_action(state, action_mask=mask, training=False)
+                state, reward, done, _, info = env.step(action)
+                mask = info.get("action_mask")
+
+            avg_pegs.append(info["pegs_remaining"])
+            if info["pegs_remaining"] == 1:
+                wins += 1
+
+        return {
+            "win_rate": wins / num_episodes,
+            "avg_pegs": np.mean(avg_pegs)
+        }
+
+    eval_results = evaluate_agent(agent, env, num_episodes=100)
+    print(f"Tasa de victoria: {eval_results['win_rate']:.2%}")
+    print(f"Promedio de fichas restantes: {eval_results['avg_pegs']:.2f}")
+    return
+
+
+@app.cell(hide_code=True)
+def _(EPISODES_TUTORIAL, agent, torch):
+    # Guardar checkpoint
+    torch.save({
+        'q_network': agent.q_network.state_dict(),
+        'optimizer': agent.optimizer.state_dict(),
+        'epsilon': agent.epsilon,
+        'episode': EPISODES_TUTORIAL
+        },
+       'checkpoints/dqn_french_solitaire.pt'
+    )
+
+    # Cargar checkpoint
+    checkpoint = torch.load('checkpoints/dqn_french_solitaire.pt', weights_only=True)
+    agent.q_network.load_state_dict(checkpoint['q_network'])
+    agent.optimizer.load_state_dict(checkpoint['optimizer'])
+    agent.epsilon = checkpoint['epsilon']
     return
 
 
@@ -1124,6 +1550,182 @@ def _(mo):
 
     **¡Éxito con tu proyecto de RL! 🚀**
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(np, torch):
+    import time
+
+    def _dir_to_str(dr, dc):
+        if dr == 0 and dc == 1: return "→"
+        if dr == 0 and dc == -1: return "←"
+        if dr == 1 and dc == 0: return "↓"
+        if dr == -1 and dc == 0: return "↑"
+        return f"({dr},{dc})"
+
+    def describe_action(env, action_idx):
+        """
+        Devuelve una descripción legible para una acción (índice → (r_from,c_from)->(r_to,c_to), dirección)
+        """
+        if action_idx < 0 or action_idx >= len(env.all_actions):
+            return f"acción {action_idx} (fuera de rango)"
+        r_from, c_from, dr, dc = env.all_actions[action_idx]
+        r_to, c_to = r_from + 2*dr, c_from + 2*dc
+        return f"{(r_from, c_from)} -> {(r_to, c_to)} dir={_dir_to_str(dr, dc)}"
+
+    def render_board_ascii(board):
+        """
+        Dibuja el tablero 7x7 como ASCII (igual a env.render pero sin espacios de celdas inválidas).
+        """
+        print("\n    0 1 2 3 4 5 6")
+        for i, row in enumerate(board):
+            row_str = f" {i}  "
+            for val in row:
+                if val == 1.0:
+                    row_str += "O "
+                elif val == 0.0:
+                    row_str += ". "
+                else:
+                    row_str += "  "
+            print(row_str)
+
+    def run_greedy_episode(agent, env, top_k=5, pause=False, delay=0.0, max_steps=200, render_each_step=True):
+        """
+        Ejecuta un episodio con ε=0, mostrando paso a paso:
+        - Top-K acciones por Q-value (enmascaradas por la máscara de acciones válidas)
+        - Acción elegida, recompensa y fichas restantes
+        - Tablero tras cada movimiento
+
+        Parámetros:
+          - agent: DQNAgent ya entrenado
+          - env: instancia del entorno (p. ej., SimplifiedFrenchSolitaireEnv())
+          - top_k: cuántas mejores acciones mostrar por paso
+          - pause: si True, espera Enter en cada paso
+          - delay: segundos de espera entre pasos (si pause=False)
+          - max_steps: límite de pasos por episodio
+          - render_each_step: si True, imprime el tablero después de cada acción
+
+        Retorna:
+          dict con la trayectoria (states, actions, rewards, pegs, done, steps)
+        """
+        prev_mode = agent.q_network.training
+        agent.q_network.eval()
+        try:
+            traj = {
+                "states": [],
+                "actions": [],
+                "rewards": [],
+                "pegs": [],
+                "done": None,
+                "steps": 0
+            }
+
+            state, info = env.reset()
+            mask = info.get("action_mask")
+            pegs = info.get("pegs_remaining", None)
+
+            print("=== INICIO DEL EPISODIO (modo greedy, ε=0) ===")
+            print(f"Fichas iniciales: {pegs}, acciones válidas: {int(mask.sum()) if mask is not None else 0}")
+            render_board_ascii(env.board)
+
+            steps = 0
+            done = False
+
+            while not done and steps < max_steps:
+                if mask is None or int(np.sum(mask)) == 0:
+                    print("Sin acciones válidas. Episodio termina.")
+                    break
+
+                # Q-values y enmascarado
+                with torch.no_grad():
+                    s = torch.as_tensor(state, dtype=torch.float32, device=agent.device).unsqueeze(0)
+                    q_all = agent.q_network(s).cpu().numpy()[0]
+
+                valid_indices = np.flatnonzero(mask.astype(bool))
+                q_masked = np.full_like(q_all, -np.inf, dtype=float)
+                q_masked[valid_indices] = q_all[valid_indices]
+
+                # Top-K acciones por Q
+                k = min(top_k, len(valid_indices))
+                top_idxs = valid_indices[np.argsort(q_all[valid_indices])[::-1][:k]]
+
+                print(f"\n--- Paso {steps + 1} ---")
+                print(f"Fichas: {int(np.sum(env.board))} | Acciones válidas: {len(valid_indices)}")
+
+                for rank, idx in enumerate(top_idxs, start=1):
+                    desc = describe_action(env, int(idx))
+                    print(f"  Top {rank}: a={int(idx):3d} | Q={q_all[int(idx)]: .4f} | {desc}")
+
+                # Acción elegida (greedy)
+                action = int(np.argmax(q_masked))
+                desc_best = describe_action(env, action)
+                print(f"➡️  Acción elegida: a={action} | {desc_best}")
+
+                # Ejecutar acción
+                next_state, reward, done, truncated, info = env.step(action)
+                next_mask = info.get("action_mask")
+                pegs = info.get("pegs_remaining", None)
+
+                # Post-acción
+                if render_each_step:
+                    render_board_ascii(env.board)
+                print(f"Recompensa: {reward:+.1f} | Fichas restantes: {pegs} | Done: {done}")
+
+                # Guardar en trayectoria
+                traj["states"].append(state)
+                traj["actions"].append(action)
+                traj["rewards"].append(reward)
+                traj["pegs"].append(pegs)
+
+                # Avanzar
+                state, mask = next_state, next_mask
+                steps += 1
+
+                if pause:
+                    input("Presiona Enter para continuar...")
+                elif delay and delay > 0:
+                    time.sleep(delay)
+
+            traj["done"] = done
+            traj["steps"] = steps
+
+            print("\n=== FIN DEL EPISODIO ===")
+            outcome = "VICTORIA 🎉" if (done and pegs == 1) else "DERROTA ❌"
+            print(f"Resultado: {outcome} | Pasos: {steps} | Fichas finales: {pegs}")
+            return traj
+        finally:
+            # Restaurar modo de la red
+            agent.q_network.train(prev_mode)
+    return (run_greedy_episode,)
+
+
+@app.cell
+def _(SimplifiedFrenchSolitaireEnv, agent, run_greedy_episode):
+    # Ejecuta un episodio greedy mostrando paso a paso
+    # Usa una nueva instancia del entorno para no interferir con el que ya tengas
+    demo_env = SimplifiedFrenchSolitaireEnv()
+    traj = run_greedy_episode(
+        agent,
+        demo_env,
+        top_k=5,        # muestra las 5 mejores acciones por Q
+        pause=False,    # pon True si quieres avanzar con Enter
+        delay=0.2,      # o un pequeño delay entre pasos
+        max_steps=200,
+        render_each_step=True
+    )
+    # Ejecuta un episodio greedy mostrando paso a paso
+    # Usa una nueva instancia del entorno para no interferir con el que ya tengas
+    demo_env = SimplifiedFrenchSolitaireEnv()
+    traj = run_greedy_episode(
+        agent,
+        demo_env,
+        top_k=5,        # muestra las 5 mejores acciones por Q
+        pause=False,    # pon True si quieres avanzar con Enter
+        delay=0.2,      # o un pequeño delay entre pasos
+        max_steps=200,
+        render_each_step=True
+    )
     return
 
 
