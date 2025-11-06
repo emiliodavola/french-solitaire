@@ -29,6 +29,6 @@ dependencies:
   - matplotlib
   - tensorboard
   - pytest
-  - ty
+  # - ty  # Comentado temporalmente por conflicto/bug
   - basedpyright
   - huggingface_hub
