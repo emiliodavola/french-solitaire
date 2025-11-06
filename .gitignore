@@ -229,3 +229,6 @@ logs/
 
 # Conda
 .conda/
+
+# Custom
+temp_hf_upload/

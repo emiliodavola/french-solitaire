@@ -86,7 +86,7 @@ huggingface-cli login
 # 2. Subir mejor modelo
 python scripts/upload_to_hf.py \
   --checkpoint checkpoints/my-experiment_best.pt \
-  --repo-id tu-usuario/french-solitaire-dqn
+  --repo-id tu-usuario/french-solitaire
 ```
 
 **El script automáticamente:**
