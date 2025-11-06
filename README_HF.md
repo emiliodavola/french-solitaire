@@ -172,7 +172,7 @@ If you use this model or code, please cite:
   year = {2025},
   publisher = {Hugging Face},
   journal = {Hugging Face Hub},
-  howpublished = {\url{https://huggingface.co/emiliodavola/french-solitaire-dqn}}
+  howpublished = {\url{https://huggingface.co/emiliodavola/french-solitaire}}
 }
 ```
 
