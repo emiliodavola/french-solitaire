@@ -1,0 +1,40 @@
+{
+  "model_type": "dqn",
+  "task": "reinforcement-learning",
+  "environment": "french-solitaire-7x7",
+  "algorithm": "double-dqn",
+  "framework": "pytorch",
+  "state_dim": 49,
+  "action_dim": 100,
+  "architecture": {
+    "type": "mlp",
+    "layers": [
+      {"type": "linear", "in": 49, "out": 128},
+      {"type": "relu"},
+      {"type": "linear", "in": 128, "out": 128},
+      {"type": "relu"},
+      {"type": "linear", "in": 128, "out": 100}
+    ]
+  },
+  "hyperparameters": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "epsilon_start": 1.0,
+    "epsilon_end": 0.01,
+    "epsilon_decay": 0.995,
+    "batch_size": 64,
+    "buffer_size": 10000,
+    "target_update_freq": 100
+  },
+  "training": {
+    "episodes": 15000,
+    "max_steps_per_episode": 200,
+    "device": "cuda"
+  },
+  "performance": {
+    "win_rate": "TBD",
+    "center_win_rate": "TBD",
+    "avg_reward": "TBD",
+    "avg_pegs_remaining": "TBD"
+  }
+}
