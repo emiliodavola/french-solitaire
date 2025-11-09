@@ -18,7 +18,7 @@ library_name: pytorch
 
 ## Model Description
 
-This is a **Deep Q-Network (DQN)** agent trained to solve the **French Solitaire** puzzle (Peg Solitaire, 7×7 European variant) via a **single deterministic trajectory** learned during training. The published checkpoint represents a policy that, when evaluated en modo greedy (ε = 0), sigue una ruta canónica hasta la victoria (32 → 1 ficha en el centro). It does **not** attempt to enumerate or diversify multiple winning solutions.
+This is a **Deep Q-Network (DQN)** agent trained to solve the **French Solitaire** puzzle (Peg Solitaire, 7×7 European variant) via a **single deterministic trajectory** learned during training. The published checkpoint represents a policy that, when evaluated in greedy mode (ε = 0), follows a canonical route to victory (32 → 1 peg in the center). It does **not** attempt to enumerate or diversify multiple winning solutions.
 
 ### Game Rules
 
@@ -36,7 +36,7 @@ Initial board:
   O O O O O O O
       O O O
       O O O
-```text
+
 Goal:
       . . .
       . . .
@@ -86,7 +86,7 @@ Training was logged with **MLflow** and tracked in `./mlruns`.
 
 ## Determinism / Single-Solution Note
 
-During evaluation we force `epsilon = 0.0`, yielding a greedy policy. Given fixed weights and initial board, action selection is deterministic (tie-breaking handled by `argmax`). If you need multiple trajectories or stochastic solution sampling, you should train or evaluate with a modified script (e.g. softmax over Q-values or ε>0) — not included in this single-solution release.
+During evaluation we force `epsilon = 0.0`, yielding a greedy policy. Given fixed weights and the initial board, action selection is deterministic (tie-breaking handled by `argmax`). If you need multiple trajectories or stochastic solution sampling, you should train or evaluate with a modified script (e.g. softmax over Q-values or ε > 0) — not included in this single-solution release.
 
 To keep the repository focused, tags include `single-solution` and `deterministic`.
 
