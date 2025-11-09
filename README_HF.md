@@ -9,14 +9,16 @@ tags:
   - peg-solitaire
   - pytorch
   - gymnasium
+  - single-solution
+  - deterministic
 library_name: pytorch
 ---
 
-# DQN Agent for French Solitaire (7×7)
+# DQN Agent for French Solitaire (7×7) — Single-Solution Deterministic Policy
 
 ## Model Description
 
-This is a **Deep Q-Network (DQN)** agent trained to solve the **French Solitaire** puzzle (also known as Peg Solitaire, 7×7 European variant). The agent learns to reduce 32 pegs to 1 peg remaining in the center of the board.
+This is a **Deep Q-Network (DQN)** agent trained to solve the **French Solitaire** puzzle (Peg Solitaire, 7×7 European variant) via a **single deterministic trajectory** learned during training. The published checkpoint represents a policy that, when evaluated in greedy mode (ε = 0), follows a canonical route to victory (32 → 1 peg in the center). It does **not** attempt to enumerate or diversify multiple winning solutions.
 
 ### Game Rules
 
@@ -25,7 +27,7 @@ This is a **Deep Q-Network (DQN)** agent trained to solve the **French Solitaire
 - **Objective**: Jump pegs over adjacent pegs to remove them, leaving only 1 peg in the center
 - **Valid move**: Jump horizontally or vertically over an adjacent peg into an empty space
 
-```
+```text
 Initial board:
       O O O
       O O O
@@ -82,6 +84,12 @@ Goal:
 
 Training was logged with **MLflow** and tracked in `./mlruns`.
 
+## Determinism / Single-Solution Note
+
+During evaluation we force `epsilon = 0.0`, yielding a greedy policy. Given fixed weights and the initial board, action selection is deterministic (tie-breaking handled by `argmax`). If you need multiple trajectories or stochastic solution sampling, you should train or evaluate with a modified script (e.g. softmax over Q-values or ε > 0) — not included in this single-solution release.
+
+To keep the repository focused, tags include `single-solution` and `deterministic`.
+
 ## Usage
 
 ### Installation
@@ -99,8 +107,8 @@ conda activate french-solitaire
 ### Evaluate the model
 
 ```bash
-# Download checkpoint from this repo
-# The model file is: pytorch_model.pt
+# Download checkpoint from this repo (single-solution deterministic)
+# The canonical model file is: pytorch_model.pt
 
 # Run evaluation (100 episodes)
 conda activate french-solitaire
@@ -151,31 +159,37 @@ print(f"Victory: {info.get('center_win', False)}")
 
 ## Limitations
 
-- The agent is trained specifically for the 7×7 French Solitaire variant
-- Performance may vary with different random seeds
-- Action space is fixed at 100 possible moves (geometric pre-computation)
+This release purposely reflects a **single deterministic solution path**:
 
-## Future Improvements
+- Trained specifically for the 7×7 French Solitaire variant.
+- Does not expose multiple diverse winning trajectories.
+- Action space is fixed at 100 pre-computed geometric moves.
+- Performance metrics reported here correspond to greedy (ε=0) evaluation only.
 
-- [ ] Implement Dueling DQN architecture
-- [ ] Add Prioritized Experience Replay
-- [ ] Train with curriculum learning
-- [ ] Exploit board symmetries for data augmentation
-- [ ] Increase training episodes (50k-100k)
-- [ ] Hyperparameter tuning with Ray Tune
+## Future Improvements / Multi-Solution Roadmap
+
+Potential extensions (not part of this checkpoint):
+
+- [ ] Stochastic evaluation (softmax over Q or ε-sampling) to collect multiple solution paths.
+- [ ] Exact DFS solver for enumerating all distinct winning trajectories (with symmetry pruning).
+- [ ] Dueling DQN architecture.
+- [ ] Prioritized Experience Replay.
+- [ ] Curriculum learning.
+- [ ] Board symmetry data augmentation.
+- [ ] Extended training (50k–100k episodes) and hyperparameter tuning (Ray Tune).
 
 ## Citation
 
 If you use this model or code, please cite:
 
 ```bibtex
-@misc{french-solitaire,
+@misc{french-solitaire-dqn-single-solution,
   author = {Emilio Davola},
-  title = {DQN Agent for French Solitaire},
+  title = {DQN Agent for French Solitaire - Single-Solution Deterministic Policy},
   year = {2025},
   publisher = {Hugging Face},
   journal = {Hugging Face Hub},
-  howpublished = {\url{https://huggingface.co/emiliodavola/french-solitaire}}
+  howpublished = {\url{https://huggingface.co/emiliodavola/french-solitaire-dqn-single-solution}}
 }
 ```
 
