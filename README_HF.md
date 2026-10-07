@@ -14,15 +14,17 @@ tags:
 library_name: pytorch
 ---
 
-# DQN Agent for French Solitaire (7×7) — Single-Solution Deterministic Policy
+# DQN Agent for French Solitaire (7×7) — Pedagogical RL Exercise
 
 ## Model Description
 
-This is a **Deep Q-Network (DQN)** agent trained to solve the **French Solitaire** puzzle (Peg Solitaire, 7×7 European variant) via a **single deterministic trajectory** learned during training. The published checkpoint represents a policy that, when evaluated in greedy mode (ε = 0), follows a canonical route to victory (32 → 1 peg in the center). It does **not** attempt to enumerate or diversify multiple winning solutions.
+This is a **Deep Q-Network (DQN)** agent trained on the **French Solitaire** puzzle (Peg Solitaire, 7×7 cross board) as a **pedagogical reinforcement-learning exercise**: the environment and the agent are implemented from scratch to study how RL agents are built and trained.
+
+It is **not presented as a solver for the puzzle**. The puzzle is deterministic with a finite state space, so an exact search solver (DFS/BFS with memoization) solves it optimally in milliseconds. The published checkpoint demonstrates that a DQN can learn a **single deterministic trajectory** that wins from the fixed initial board (32 → 1 peg in the center) in greedy mode (ε = 0). It does **not** generalize across starting positions, nor does it enumerate multiple winning solutions.
 
 ### Game Rules
 
-- **Board**: 7×7 grid with 32 valid positions (European cross shape)
+- **Board**: 7×7 grid with 33 valid positions (cross 3-3-7-7-7-3-3); 16 cells are outside the board
 - **Initial state**: All positions filled except the center (3,3)
 - **Objective**: Jump pegs over adjacent pegs to remove them, leaving only 1 peg in the center
 - **Valid move**: Jump horizontally or vertically over an adjacent peg into an empty space
@@ -78,9 +80,8 @@ Goal:
 
 - **Episodes**: 10,000
 - **Training time**: ~20 minutes on NVIDIA GPU (CUDA 12.1)
-- **Win rate**: 100.0% (1 peg remaining)
-- **Center win rate**: 100.0% (perfect victories)
-- **Average pegs remaining**: 1.0
+
+> **Note on the metrics below**: the environment is deterministic and evaluation runs a greedy policy from a single fixed initial board, so every evaluation episode replays the same trajectory. These numbers are a **single distinct sample**, not a success rate. The reported episode count and metrics are currently inconsistent with `model_config.json`; see the open issues.
 
 Training was logged with **MLflow** and tracked in `./mlruns`.
 
@@ -157,13 +158,15 @@ print(f"Victory: {info.get('center_win', False)}")
 | Avg. pegs remaining | 1.0 |
 | Avg. steps per episode | 31.0 |
 
+> These figures come from a deterministic greedy rollout on a single initial board (see the note above), so they are one distinct sample rather than a measured success rate.
+
 ## Limitations
 
 This release purposely reflects a **single deterministic solution path**:
 
 - Trained specifically for the 7×7 French Solitaire variant.
 - Does not expose multiple diverse winning trajectories.
-- Action space is fixed at 100 pre-computed geometric moves.
+- Action space is a fixed 100-slot vector, though only 76 geometric moves exist on this board (see issue #13).
 - Performance metrics reported here correspond to greedy (ε=0) evaluation only.
 
 ## Future Improvements / Multi-Solution Roadmap
