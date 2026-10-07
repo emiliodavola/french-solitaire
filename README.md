@@ -1,8 +1,16 @@
 # French Solitaire
 
-Entrena un agente de **Deep Q-Learning (DQN)** para resolver el juego **French Solitaire** (7×7) usando PyTorch.
+Entrena un agente de **Deep Q-Learning (DQN)** para el juego **French Solitaire** (7×7) usando PyTorch.
 
 **Objetivo**: Reducir 32 fichas a 1 ficha en el centro del tablero.
+
+## 🎓 Alcance y propósito
+
+Este repositorio es un **ejercicio pedagógico de Reinforcement Learning**: implementa desde cero un entorno compatible con Gymnasium y un agente DQN para estudiar cómo se construyen y se entrenan.
+
+**No es un solver de French Solitaire.** El problema es determinista y de estado finito, así que un solver de búsqueda exacta (DFS/BFS con memoización) lo resuelve de forma óptima en milisegundos. Acá el objetivo es aprender RL, no resolver el puzzle por la vía más eficiente. Que el agente encuentre una trayectoria ganadora sobre un tablero inicial fijo es un resultado pedagógico, no una demostración de que RL sea el método adecuado para este problema.
+
+**Limitaciones conocidas y trabajo pendiente**: ver los [issues abiertos](https://github.com/emiliodavola/french-solitaire/issues).
 
 ## 🚀 Quick Start
 
@@ -166,8 +174,9 @@ Tablero inicial (7×7):
 Objetivo: ¡Dejar solo UNA ficha en el centro!
 ```
 
+- **Tablero**: 33 posiciones válidas (cruz 3-3-7-7-7-3-3); 16 celdas quedan fuera del tablero
 - **Movimiento**: Saltar una ficha adyacente sobre un espacio vacío (horizontal/vertical)
-- **Fichas iniciales**: 32
+- **Fichas iniciales**: 32 (33 posiciones, con el centro vacío)
 - **Victoria**: 1 ficha en el centro (3,3)
 
 ## 🧪 Tests
