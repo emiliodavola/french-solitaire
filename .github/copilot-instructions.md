@@ -1,6 +1,6 @@
 ## Propósito
 
-Este repositorio entrena un agente de **aprendizaje por refuerzo (RL)** para resolver el juego **French Solitaire** (variante europea 7×7, también conocido como Peg Solitaire o "Senku"). El proyecto es educativo: implementa el entorno del juego compatible con Gym/Gymnasium y algoritmos de RL usando **PyTorch** (DQN, PPO, A2C u otros) para aprender sobre RL mientras se entrena un agente que realice movimientos óptimos.
+Este repositorio entrena un agente de **aprendizaje por refuerzo (RL)** para resolver el juego **French Solitaire** (variante europea 7×7, también conocido como Peg Solitaire o "Senku"). El proyecto es un ejercicio pedagógico de RL, no un solver: implementa el entorno del juego compatible con Gym/Gymnasium y algoritmos de RL usando **PyTorch** (DQN, PPO, A2C u otros) para aprender sobre RL mientras se entrena un agente que encuentre una trayectoria ganadora. French Solitaire es determinista y de estado finito, por lo que su resolución exacta corresponde a búsqueda (DFS/BFS con memoización), no a RL.
 
 **Stack principal**: Python 3.12 + PyTorch (GPU con conda) + Gymnasium + MLflow
 
